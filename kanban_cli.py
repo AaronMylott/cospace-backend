@@ -12,6 +12,7 @@ class Task:
 
 class KanbanBoard:
     STATUSES = ["To Do", "In Progress", "Done"]
+    IN_PROGRESS_LIMIT = 2
 
     def __init__(self):
         self.tasks = []
@@ -35,6 +36,14 @@ class KanbanBoard:
                 if next_status.get(task.status) != new_status:
                     print("Invalid move. Tasks can only move forward one state at a time.")
                     return
+
+                if new_status == "In Progress":
+                    in_progress_count = sum(
+                        1 for task in self.tasks if task.status == "In Progress"
+                    )
+                    if in_progress_count >= self.IN_PROGRESS_LIMIT:
+                        print("WIP limit reached. Only 2 tasks can be In Progress at a time.")
+                        return
 
                 task.status = new_status
                 print(f"Task moved to '{new_status}'.")
