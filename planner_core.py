@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 STATE_FILE = Path(__file__).resolve().with_name("state.json")
 SPRINT_STATUSES = ["Planning", "Active", "Completed"]
@@ -13,6 +13,20 @@ IN_PROGRESS_LIMIT = 2
 
 # Fibonacci scale; None means "not yet estimated".
 STORY_POINT_VALUES = [1, 2, 3, 5, 8, 13]
+
+DEFAULT_DOR_CHECKLIST = {
+    "acceptance_criteria_defined": False,
+    "dependencies_identified": False,
+    "estimated": False,
+    "testable": False,
+}
+
+DEFAULT_DOD_CHECKLIST = {
+    "code_reviewed": False,
+    "tests_passing": False,
+    "documentation_updated": False,
+    "acceptance_criteria_met": False,
+}
 
 
 def _clean_story_points(value: Any) -> Any:
@@ -27,6 +41,22 @@ def _clean_story_points(value: Any) -> Any:
     if points not in STORY_POINT_VALUES:
         raise ValueError(f"story_points must be one of {STORY_POINT_VALUES}, got {points}.")
     return points
+
+
+def _clean_checklist(value: Any, field_name: str) -> Dict[str, bool]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{field_name} must be an object of criterion -> true/false.")
+    cleaned: Dict[str, bool] = {}
+    for criterion, met in value.items():
+        criterion = str(criterion).strip()
+        if not criterion:
+            raise ValueError(f"{field_name} has an empty criterion name.")
+        if not isinstance(met, bool):
+            raise ValueError(f"{field_name}['{criterion}'] must be true or false, got {met!r}.")
+        cleaned[criterion] = met
+    return cleaned
 
 
 @dataclass
@@ -106,6 +136,8 @@ class Task:
     story_points: Any = None
     blocked: bool = False
     blocker_reason: str = ""
+    dor_checklist: Dict[str, bool] = field(default_factory=lambda: dict(DEFAULT_DOR_CHECKLIST))
+    dod_checklist: Dict[str, bool] = field(default_factory=lambda: dict(DEFAULT_DOD_CHECKLIST))
 
     def __post_init__(self) -> None:
         if not self.title or not self.title.strip():
@@ -114,14 +146,28 @@ class Task:
             raise ValueError(f"Invalid task status: {self.status}")
         self.title = self.title.strip()
         self.description = (self.description or "").strip()
-        self.story_points = _clean_story_points(self.story_points)
 
+        self.story_points = _clean_story_points(self.story_points)
         self.blocked = bool(self.blocked)
         self.blocker_reason = (self.blocker_reason or "").strip()
         if self.blocked and not self.blocker_reason:
             raise ValueError(f"Task '{self.id}' is blocked but has no blocker_reason.")
         if not self.blocked and self.blocker_reason:
             raise ValueError(f"Task '{self.id}' has a blocker_reason but is not blocked.")
+
+        self.dor_checklist = _clean_checklist(self.dor_checklist, "dor_checklist")
+        self.dod_checklist = _clean_checklist(self.dod_checklist, "dod_checklist")
+
+    @property
+    def is_ready(self) -> bool:
+        return all(self.dor_checklist.values())
+
+    @property
+    def is_done_complete(self) -> bool:
+        return all(self.dod_checklist.values())
+
+    def unmet(self, checklist: Dict[str, bool]) -> List[str]:
+        return [name for name, met in checklist.items() if not met]
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -132,6 +178,8 @@ class Task:
             "story_points": self.story_points,
             "blocked": self.blocked,
             "blocker_reason": self.blocker_reason,
+            "dor_checklist": dict(self.dor_checklist),
+            "dod_checklist": dict(self.dod_checklist),
         }
 
     @classmethod
@@ -144,6 +192,8 @@ class Task:
             story_points=data.get("story_points"),
             blocked=data.get("blocked", False),
             blocker_reason=data.get("blocker_reason", ""),
+            dor_checklist=data.get("dor_checklist", dict(DEFAULT_DOR_CHECKLIST)),
+            dod_checklist=data.get("dod_checklist", dict(DEFAULT_DOD_CHECKLIST)),
         )
 
     def __str__(self) -> str:
@@ -339,6 +389,14 @@ def find_task(state: PlannerState, task_id: str) -> Task:
     return task
 
 
+def active_sprint(state: PlannerState) -> Optional[Sprint]:
+    """Return the one Active sprint, or None. Exclusivity is enforced elsewhere."""
+    for sprint in state.sprints:
+        if sprint.status == "Active":
+            return sprint
+    return None
+
+
 def create_task(state: PlannerState, title: str, description: str = "", story_points: Any = None) -> Task:
     """Create a backlog task. Use add_task_to_sprint to pull it into a sprint."""
     task_id = _next_id("task", list(state.tasks))
@@ -351,6 +409,7 @@ def create_task(state: PlannerState, title: str, description: str = "", story_po
 def estimate_task(state: PlannerState, task_id: str, story_points: Any) -> Task:
     task = find_task(state, task_id)
     task.story_points = _clean_story_points(story_points)
+    task.dor_checklist["estimated"] = task.story_points is not None
     return task
 
 
@@ -373,11 +432,77 @@ def unblock_task(state: PlannerState, task_id: str) -> Task:
     return task
 
 
+def set_checklist_item(state: PlannerState, task_id: str, checklist: str, criterion: str, met: bool) -> Task:
+    task = find_task(state, task_id)
+    if checklist not in ("dor", "dod"):
+        raise ValueError("checklist must be 'dor' or 'dod'.")
+    target = task.dor_checklist if checklist == "dor" else task.dod_checklist
+    criterion = (criterion or "").strip()
+    if criterion not in target:
+        raise ValueError(f"'{criterion}' is not in the {checklist}_checklist. Known: {sorted(target)}")
+    target[criterion] = bool(met)
+    return task
+
+
 def sprint_of_task(state: PlannerState, task_id: str) -> Sprint:
     for sprint in state.sprints:
         if task_id in sprint.task_ids:
             return sprint
     return None
+
+
+def check_definition_of_ready(task: Task) -> List[str]:
+    """Return the reasons a task is not ready for a sprint. Empty list means ready."""
+    reasons: List[str] = []
+
+    if task.blocked:
+        reasons.append(f"blocked: {task.blocker_reason}")
+    if task.story_points is None:
+        reasons.append("not estimated (story_points is null)")
+    if not task.description:
+        reasons.append("no description")
+    for criterion in task.unmet(task.dor_checklist):
+        reasons.append(f"DoR item not met: {criterion}")
+
+    return reasons
+
+
+def check_definition_of_done(task: Task) -> List[str]:
+    """Return the reasons a task cannot be closed. Empty list means it can close."""
+    reasons: List[str] = []
+
+    if task.blocked:
+        reasons.append(f"blocked: {task.blocker_reason}")
+    if task.status == "Done":
+        reasons.append("already Done")
+    elif task.status != "In Progress":
+        reasons.append(f"status is '{task.status}', work must be In Progress before closing")
+    for criterion in task.unmet(task.dod_checklist):
+        reasons.append(f"DoD item not met: {criterion}")
+
+    return reasons
+
+
+def is_ready_for_sprint(task: Task) -> bool:
+    return not check_definition_of_ready(task)
+
+
+def can_be_closed(task: Task) -> bool:
+    return not check_definition_of_done(task)
+
+
+def backlog_readiness(state: PlannerState) -> List[Dict[str, Any]]:
+    """Sprint planning view: every backlog task with the reasons it is not ready."""
+    report = []
+    for task_id in state.backlog_task_ids:
+        task = state.tasks.get(task_id)
+        if task is None:
+            continue
+        report.append({
+            "task": task,
+            "reasons": check_definition_of_ready(task),
+        })
+    return report
 
 
 def move_task(state: PlannerState, task_id: str, new_status: str) -> Task:
@@ -392,7 +517,6 @@ def move_task(state: PlannerState, task_id: str, new_status: str) -> Task:
             "Tasks move forward one column at a time."
         )
 
-    # A blocked task is frozen: unblock_task is the only way out.
     if task.blocked:
         raise ValueError(f"Task '{task_id}' is blocked: {task.blocker_reason}")
 
@@ -401,6 +525,13 @@ def move_task(state: PlannerState, task_id: str, new_status: str) -> Task:
         if in_progress >= IN_PROGRESS_LIMIT:
             raise ValueError(
                 f"WIP limit reached. Only {IN_PROGRESS_LIMIT} tasks may be In Progress at once."
+            )
+
+    if new_status == "Done":
+        reasons = check_definition_of_done(task)
+        if reasons:
+            raise ValueError(
+                f"Task '{task_id}' cannot be closed: " + "; ".join(reasons)
             )
 
     task.status = new_status
@@ -427,6 +558,12 @@ def add_task_to_sprint(state: PlannerState, sprint_id: str, task_id: str) -> Spr
     if owner is not None and owner.id != sprint.id:
         raise ValueError(f"Task '{task.id}' is already assigned to sprint '{owner.id}'.")
 
+    reasons = check_definition_of_ready(task)
+    if reasons:
+        raise ValueError(
+            f"Task '{task.id}' is not ready for a sprint: " + "; ".join(reasons)
+        )
+
     if task.id in state.backlog_task_ids:
         state.backlog_task_ids = [item for item in state.backlog_task_ids if item != task.id]
     if task.id not in sprint.task_ids:
@@ -435,26 +572,45 @@ def add_task_to_sprint(state: PlannerState, sprint_id: str, task_id: str) -> Spr
     return sprint
 
 
-def complete_sprint(state: PlannerState, sprint_id: str) -> Sprint:
+def complete_sprint(state: PlannerState, sprint_id: str) -> Dict[str, Any]:
+    """Close a sprint, returning it plus a report on the work that carried over."""
     sprint = find_sprint(state, sprint_id)
     if sprint.status != "Active":
         raise ValueError(f"Sprint '{sprint_id}' cannot be completed because it is not Active.")
 
-    remaining_task_ids: List[str] = []
+    delivered: List[str] = []
+    carried_over: List[Dict[str, Any]] = []
+
     for task_id in sprint.task_ids:
         task = state.tasks.get(task_id)
         if task is not None and task.status == "Done":
-            remaining_task_ids.append(task_id)
-        else:
-            if task is not None:
-                task.status = "To Do"
-            if task_id not in state.backlog_task_ids:
-                state.backlog_task_ids.append(task_id)
+            delivered.append(task_id)
+            continue
 
-    sprint.task_ids = remaining_task_ids
+        if task is not None:
+            # Record why before resetting, or the reasons change under us.
+            carried_over.append({
+                "task": task,
+                "reasons": check_definition_of_done(task),
+            })
+            task.status = "To Do"
+        if task_id not in state.backlog_task_ids:
+            state.backlog_task_ids.append(task_id)
+
+    sprint.task_ids = delivered
     sprint.status = "Completed"
     state.backlog_task_ids = _unique(state.backlog_task_ids)
-    return sprint
+
+    return {
+        "sprint": sprint,
+        "delivered": [state.tasks[task_id] for task_id in delivered if task_id in state.tasks],
+        "carried_over": carried_over,
+        "velocity": sum(
+            state.tasks[task_id].story_points or 0
+            for task_id in delivered
+            if task_id in state.tasks
+        ),
+    }
 
 
 def add_retrospective_card(state: PlannerState, sprint_id: str, category: str, text: str) -> RetrospectiveCard:
@@ -513,8 +669,13 @@ def main() -> None:
     print("=" * 70)
     print("2. UNFINISHED WORK - returned to the backlog on completion")
     print("=" * 70)
-    task_a = create_task(state, "Build login form", "Email and password fields")
-    task_b = create_task(state, "Wire up signup", "Depends on the login form")
+    task_a = create_task(state, "Build login form", "Email and password fields", 5)
+    task_b = create_task(state, "Wire up signup", "Depends on the login form", 3)
+    for task in (task_a, task_b):
+        for criterion in task.dor_checklist:
+            task.dor_checklist[criterion] = True
+    for criterion in task_a.dod_checklist:
+        task_a.dod_checklist[criterion] = True
     add_task_to_sprint(state, sprint_one.id, task_a.id)
     add_task_to_sprint(state, sprint_one.id, task_b.id)
     move_task(state, task_a.id, "In Progress")
@@ -522,9 +683,13 @@ def main() -> None:
     move_task(state, task_b.id, "In Progress")
     print(f"  Before: sprint tasks {sprint_one.task_ids}, backlog {state.backlog_task_ids}")
     print(f"          {task_a.id}={task_a.status}, {task_b.id}={task_b.status}")
-    complete_sprint(state, sprint_one.id)
+    result = complete_sprint(state, sprint_one.id)
     print(f"  After : sprint tasks {sprint_one.task_ids}, backlog {state.backlog_task_ids}")
-    print(f"          {task_b.id} was unfinished -> reset to '{task_b.status}' in the backlog")
+    print(f"  Velocity: {result['velocity']} points delivered")
+    for entry in result["carried_over"]:
+        print(f"  Carried over: {entry['task'].title}")
+        for reason in entry["reasons"]:
+            print(f"      - {reason}")
 
     print()
     print("=" * 70)

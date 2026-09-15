@@ -83,8 +83,12 @@ def show_backlog(state):
     print("-" * 40)
     if not state.backlog_task_ids:
         print("  Empty.")
-    for task_id in state.backlog_task_ids:
-        print(f"  {state.tasks[task_id]}  [{state.tasks[task_id].status}]")
+    for entry in core.backlog_readiness(state):
+        task = entry["task"]
+        marker = "READY" if not entry["reasons"] else "NOT READY"
+        print(f"  [{marker}] {task}")
+        for reason in entry["reasons"]:
+            print(f"      - {reason}")
 
 
 def show_sprints(state):
@@ -159,13 +163,13 @@ def handle(state, choice):
             core.add_task_to_sprint(state, active.id, task_id)
             print(f"  Added to {active.name}.")
     elif choice == "9":
-        before = list(state.backlog_task_ids)
-        sprint = core.complete_sprint(state, pick_sprint(state, "Sprint to complete"))
-        returned = [task_id for task_id in state.backlog_task_ids if task_id not in before]
-        print(f"  {sprint.name} is now Completed.")
-        if returned:
-            names = ", ".join(state.tasks[task_id].title for task_id in returned)
-            print(f"  Returned to backlog: {names}")
+        result = core.complete_sprint(state, pick_sprint(state, "Sprint to complete"))
+        print(f"  {result['sprint'].name} is now Completed.")
+        print(f"  Delivered {len(result['delivered'])} task(s), {result['velocity']} points.")
+        for entry in result["carried_over"]:
+            print(f"  Carried over to backlog: {entry['task'].title}")
+            for reason in entry["reasons"]:
+                print(f"      - {reason}")
     elif choice == "10":
         category = choose("Category", core.RETROSPECTIVE_CATEGORIES)
         if category:
