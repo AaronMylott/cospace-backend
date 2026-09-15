@@ -28,6 +28,14 @@ class KanbanBoard:
                     print("Invalid status.")
                     return
 
+                next_status = {
+                    "To Do": "In Progress",
+                    "In Progress": "Done"
+                }
+                if next_status.get(task.status) != new_status:
+                    print("Invalid move. Tasks can only move forward one state at a time.")
+                    return
+
                 task.status = new_status
                 print(f"Task moved to '{new_status}'.")
                 return
