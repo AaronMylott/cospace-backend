@@ -104,6 +104,8 @@ class Task:
     status: str = "To Do"
     id: str = ""
     story_points: Any = None
+    blocked: bool = False
+    blocker_reason: str = ""
 
     def __post_init__(self) -> None:
         if not self.title or not self.title.strip():
@@ -114,6 +116,13 @@ class Task:
         self.description = (self.description or "").strip()
         self.story_points = _clean_story_points(self.story_points)
 
+        self.blocked = bool(self.blocked)
+        self.blocker_reason = (self.blocker_reason or "").strip()
+        if self.blocked and not self.blocker_reason:
+            raise ValueError(f"Task '{self.id}' is blocked but has no blocker_reason.")
+        if not self.blocked and self.blocker_reason:
+            raise ValueError(f"Task '{self.id}' has a blocker_reason but is not blocked.")
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
@@ -121,6 +130,8 @@ class Task:
             "description": self.description,
             "status": self.status,
             "story_points": self.story_points,
+            "blocked": self.blocked,
+            "blocker_reason": self.blocker_reason,
         }
 
     @classmethod
@@ -131,12 +142,15 @@ class Task:
             description=data.get("description", ""),
             status=data.get("status", "To Do"),
             story_points=data.get("story_points"),
+            blocked=data.get("blocked", False),
+            blocker_reason=data.get("blocker_reason", ""),
         )
 
     def __str__(self) -> str:
         suffix = f" - {self.description}" if self.description else ""
         points = f" ({self.story_points}pt)" if self.story_points is not None else ""
-        return f"[{self.id}] {self.title}{points}{suffix}"
+        flag = f" [BLOCKED: {self.blocker_reason}]" if self.blocked else ""
+        return f"[{self.id}] {self.title}{points}{suffix}{flag}"
 
 
 @dataclass
@@ -340,6 +354,25 @@ def estimate_task(state: PlannerState, task_id: str, story_points: Any) -> Task:
     return task
 
 
+def block_task(state: PlannerState, task_id: str, reason: str) -> Task:
+    task = find_task(state, task_id)
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("A blocker_reason is required when blocking a task.")
+    task.blocked = True
+    task.blocker_reason = reason
+    return task
+
+
+def unblock_task(state: PlannerState, task_id: str) -> Task:
+    task = find_task(state, task_id)
+    if not task.blocked:
+        raise ValueError(f"Task '{task_id}' is not blocked.")
+    task.blocked = False
+    task.blocker_reason = ""
+    return task
+
+
 def sprint_of_task(state: PlannerState, task_id: str) -> Sprint:
     for sprint in state.sprints:
         if task_id in sprint.task_ids:
@@ -358,6 +391,10 @@ def move_task(state: PlannerState, task_id: str, new_status: str) -> Task:
             f"Task '{task_id}' cannot move from '{task.status}' to '{new_status}'. "
             "Tasks move forward one column at a time."
         )
+
+    # A blocked task is frozen: unblock_task is the only way out.
+    if task.blocked:
+        raise ValueError(f"Task '{task_id}' is blocked: {task.blocker_reason}")
 
     if new_status == "In Progress":
         in_progress = sum(1 for item in state.tasks.values() if item.status == "In Progress")
