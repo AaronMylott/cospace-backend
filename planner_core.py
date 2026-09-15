@@ -11,6 +11,23 @@ RETROSPECTIVE_CATEGORIES = ["Went Well", "To Improve", "Action Item"]
 TASK_STATUSES = ["To Do", "In Progress", "Done"]
 IN_PROGRESS_LIMIT = 2
 
+# Fibonacci scale; None means "not yet estimated".
+STORY_POINT_VALUES = [1, 2, 3, 5, 8, 13]
+
+
+def _clean_story_points(value: Any) -> Any:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        raise ValueError("story_points must be a number, not a boolean.")
+    try:
+        points = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"story_points must be a whole number, got {value!r}.")
+    if points not in STORY_POINT_VALUES:
+        raise ValueError(f"story_points must be one of {STORY_POINT_VALUES}, got {points}.")
+    return points
+
 
 @dataclass
 class Sprint:
@@ -86,6 +103,7 @@ class Task:
     description: str = ""
     status: str = "To Do"
     id: str = ""
+    story_points: Any = None
 
     def __post_init__(self) -> None:
         if not self.title or not self.title.strip():
@@ -94,6 +112,7 @@ class Task:
             raise ValueError(f"Invalid task status: {self.status}")
         self.title = self.title.strip()
         self.description = (self.description or "").strip()
+        self.story_points = _clean_story_points(self.story_points)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -101,6 +120,7 @@ class Task:
             "title": self.title,
             "description": self.description,
             "status": self.status,
+            "story_points": self.story_points,
         }
 
     @classmethod
@@ -110,11 +130,13 @@ class Task:
             title=data.get("title", ""),
             description=data.get("description", ""),
             status=data.get("status", "To Do"),
+            story_points=data.get("story_points"),
         )
 
     def __str__(self) -> str:
         suffix = f" - {self.description}" if self.description else ""
-        return f"[{self.id}] {self.title}{suffix}"
+        points = f" ({self.story_points}pt)" if self.story_points is not None else ""
+        return f"[{self.id}] {self.title}{points}{suffix}"
 
 
 @dataclass
@@ -303,12 +325,18 @@ def find_task(state: PlannerState, task_id: str) -> Task:
     return task
 
 
-def create_task(state: PlannerState, title: str, description: str = "") -> Task:
+def create_task(state: PlannerState, title: str, description: str = "", story_points: Any = None) -> Task:
     """Create a backlog task. Use add_task_to_sprint to pull it into a sprint."""
     task_id = _next_id("task", list(state.tasks))
-    task = Task(id=task_id, title=title, description=description)
+    task = Task(id=task_id, title=title, description=description, story_points=story_points)
     state.tasks[task_id] = task
     state.backlog_task_ids.append(task_id)
+    return task
+
+
+def estimate_task(state: PlannerState, task_id: str, story_points: Any) -> Task:
+    task = find_task(state, task_id)
+    task.story_points = _clean_story_points(story_points)
     return task
 
 
