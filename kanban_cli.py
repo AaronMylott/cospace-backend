@@ -73,13 +73,21 @@ def print_menu():
     print("6. Exit")
 
 
+def prompt_for_task_title():
+    while True:
+        title = input("Task Title: ").strip()
+        if title:
+            return title
+        print("Please enter a task.")
+
+
 def main():
     board = KanbanBoard()
     while True:
         print_menu()
         choice = input("\nSelect an option: ").strip()
         if choice == "1":
-            board.add_task(input("Task Title: "), input("Task Description: "))
+            board.add_task(prompt_for_task_title(), input("Task Description: "))
         elif choice == "2":
             title = input("Task Title: ")
             status = {"1":"To Do","2":"In Progress","3":"Done"}.get(input("1.To Do 2.In Progress 3.Done: "))
