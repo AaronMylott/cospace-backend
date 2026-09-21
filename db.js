@@ -1,5 +1,3 @@
-cat << 'EOF' > db.js
-
 const mysql = require('mysql2/promise');
 
 // Hardcoded connection string
