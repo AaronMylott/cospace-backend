@@ -1,9 +1,9 @@
-use cospace;
+USE cospace;
 
 CREATE TABLE teams(
     id   INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
-    department VARCHAR(100) 
+    department VARCHAR(100)
 );
 
 CREATE TABLE users(
@@ -31,6 +31,7 @@ CREATE TABLE bookings(
     id int PRIMARY KEY AUTO_INCREMENT,
     user_id int,
     desk_id int,
+    booking_date DATE,
     rooms_id int,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (desk_id) REFERENCES desks(id) ON DELETE CASCADE,
