@@ -1,3 +1,5 @@
+USE cospace;
+
 CREATE TABLE teams(
     id   INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
@@ -30,7 +32,8 @@ CREATE TABLE bookings(
     user_id int,
     desk_id int,
     booking_date DATE,
-
+    rooms_id int,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (desk_id) REFERENCES desks(id) ON DELETE CASCADE
+    FOREIGN KEY (desk_id) REFERENCES desks(id) ON DELETE CASCADE,
+    FOREIGN KEY (rooms_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
