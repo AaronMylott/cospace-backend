@@ -1,17 +1,18 @@
 # CoSpace Backend
 
-Backend repository for CoSpace, a workspace booking platform designed to support hybrid working.
+Backend repository for CoSpace, a workspace booking platform designed to support hybrid working through desk and workspace management.
 
 ## Overview
 
-This repository contains the backend foundation of the CoSpace application, including database migrations, documentation, and the initial project structure.
+This repository contains the database foundation and supporting documentation for the CoSpace application. Development is currently focused on database design, migration management, and backend planning before API implementation begins.
 
 ## Repository Structure
 
 ```text
 cospace-backend/
-├── database/
-│   └── migrations/
 ├── docs/
+├── migrations/
+├── scripts/
+├── README.md
 ├── server.js
 └── users.js
