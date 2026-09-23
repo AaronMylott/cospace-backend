@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { BookingService } from "../services/booking.service";
-import { Booking } from "../repositories/booking.repository";
+import { Booking } from "../schemas/booking.schema";
 
 export class BookingController {
 	private readonly service: BookingService;
@@ -9,10 +9,15 @@ export class BookingController {
 		this.service = service ?? new BookingService();
 	}
 
-	getAll = (_request: Request, response: Response): void => {
-        console.log("Controller: getAll called");
+	getAll = (request: Request, response: Response): void => {
 		try {
-			response.status(200).json(this.service.findAll());
+			const pageParsed = parseInt(request.query.page as string, 10);
+			const limitParsed = parseInt(request.query.limit as string, 10);
+
+			const page = Math.max(1, Number.isNaN(pageParsed) ? 1 : pageParsed);
+			const limit = Math.max(1, Number.isNaN(limitParsed) ? 10 : limitParsed);
+			const safeLimit = Math.min(limit, 50);
+			response.status(200).json(this.service.getPaginatedShifts(page, safeLimit));
 		} catch {
 			response.status(500).json({ message: "Unable to retrieve bookings" });
 		}
