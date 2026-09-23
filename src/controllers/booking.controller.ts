@@ -1,4 +1,6 @@
-import { Request, Response } from "express";
+import { NextFunction, Request, Response } from "express";
+import HTTP_STATUS from "../constants/httpStatus";
+import { NotFoundError } from "../errors/notFoundError";
 import { BookingService } from "../services/booking.service";
 import { Booking } from "../schemas/booking.schema";
 
@@ -9,7 +11,7 @@ export class BookingController {
 		this.service = service ?? new BookingService();
 	}
 
-	getAll = (request: Request, response: Response): void => {
+	getAll = (request: Request, response: Response, next: NextFunction): void => {
 		try {
 			const pageParsed = parseInt(request.query.page as string, 10);
 			const limitParsed = parseInt(request.query.limit as string, 10);
@@ -17,82 +19,82 @@ export class BookingController {
 			const page = Math.max(1, Number.isNaN(pageParsed) ? 1 : pageParsed);
 			const limit = Math.max(1, Number.isNaN(limitParsed) ? 10 : limitParsed);
 			const safeLimit = Math.min(limit, 50);
-			response.status(200).json(this.service.getPaginatedShifts(page, safeLimit));
-		} catch {
-			response.status(500).json({ message: "Unable to retrieve bookings" });
+			response.status(HTTP_STATUS.OK).json(this.service.getPaginatedShifts(page, safeLimit));
+		} catch (error) {
+			next(error);
 		}
 	};
 
-	getById = (request: Request<{ id: string }>, response: Response): void => {
+	getById = (request: Request<{ id: string }>, response: Response, next: NextFunction): void => {
 		try {
 			const booking = this.service.findById(request.params.id);
 
 			if (!booking) {
-				response.status(404).json({ message: "Booking not found" });
+				next(new NotFoundError("Booking not found"));
 				return;
 			}
 
-			response.status(200).json(booking);
-		} catch {
-			response.status(500).json({ message: "Unable to retrieve booking" });
+			response.status(HTTP_STATUS.OK).json(booking);
+		} catch (error) {
+			next(error);
 		}
 	};
 
-	create = (request: Request<{}, {}, Booking>, response: Response): void => {
+	create = (request: Request<{}, {}, Booking>, response: Response, next: NextFunction): void => {
 		try {
 			const booking = this.service.create(request.body);
-			response.status(201).json(booking);
+			response.status(HTTP_STATUS.CREATED).json(booking);
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "Invalid booking";
-			response.status(400).json({ message });
+			next(error);
 		}
 	};
 
 	update = (
 		request: Request<{ id: string }, {}, Partial<Booking>>,
 		response: Response,
+		next: NextFunction,
 	): void => {
 		try {
 			const booking = this.service.update(request.params.id, request.body);
 
 			if (!booking) {
-				response.status(404).json({ message: "Booking not found" });
+				next(new NotFoundError("Booking not found"));
 				return;
 			}
 
-			response.status(200).json(booking);
-		} catch {
-			response.status(500).json({ message: "Unable to update booking" });
+			response.status(HTTP_STATUS.OK).json(booking);
+		} catch (error) {
+			next(error);
 		}
 	};
 
-	patch = (request: Request<{ id: string }>, response: Response): void => {
+	patch = (request: Request<{ id: string }>, response: Response, next: NextFunction): void => {
 		try {
 			const booking = this.service.toggleActive(request.params.id);
 
 			if (!booking) {
-				response.status(404).json({ message: "Booking not found" });
+				next(new NotFoundError("Booking not found"));
 				return;
 			}
 
-			response.status(200).json(booking);
-		} catch {
-			response.status(500).json({ message: "Unable to update booking" });
+			response.status(HTTP_STATUS.OK).json(booking);
+		} catch (error) {
+			next(error);
 		}
 	};
 
-	delete = (request: Request<{ id: string }>, response: Response): void => {
+	delete = (request: Request<{ id: string }>, response: Response, next: NextFunction): void => {
 		try {
 			const deleted = this.service.delete(request.params.id);
 
 			if (!deleted) {
-				response.status(404).json({ message: "Booking not found" });
+				next(new NotFoundError("Booking not found"));
 				return;
 			}
 
-			response.status(204).send();
-		} catch {
-			response.status(500).json({ message: "Unable to delete booking" });
+			response.status(HTTP_STATUS.NO_CONTENT).send();
+		} catch (error) {
+			next(error);
 		}
 	};
 }
