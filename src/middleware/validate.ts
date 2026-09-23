@@ -1,22 +1,23 @@
-import { RequestHandler, Request, Response, NextFunction } from "express";
+import { RequestHandler } from "express";
+import { ZodSchema, z } from "zod";
 
-export const validate = (requiredFields: string[]): RequestHandler => {
-	return (request: Request, response: Response, next: NextFunction) => {
-		const body = request.body as Record<string, unknown>;
-		const missingFields = requiredFields.filter(
-			(field) => body[field] === undefined || body[field] === null,
-		);
+export const validateSchema = (schema: ZodSchema): RequestHandler => {
+	return (request, response, next) => {
+		try {
+			request.body = schema.parse(request.body);
+			next();
+		} catch (error) {
+			if (error instanceof z.ZodError) {
+				response.status(400).json({
+					message: "Validation failed",
+					errors: error.issues,
+				});
+				return;
+			}
 
-		if (missingFields.length > 0) {
-			response.status(400).json({
-				message: "Missing required fields",
-				missingFields,
-			});
-			return;
+			next(error);
 		}
-
-		next();
 	};
 };
 
-export default validate;
+export default validateSchema;
